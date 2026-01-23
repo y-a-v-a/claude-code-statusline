@@ -78,7 +78,7 @@ CURRENT_TIME=$(date +%H:%M:%S)
 # Build session info section
 SESSION_INFO=""
 if [ -n "$SESSION_START" ]; then
-    SESSION_INFO=" | ⏰ Started: $SESSION_START | ⏱️  Duration: $SESSION_DURATION | 💬 $MESSAGE_COUNT msgs"
+    SESSION_INFO=" | ⏰ Started: $SESSION_START | ⏱️ Duration: $SESSION_DURATION | 💬 $MESSAGE_COUNT msgs"
 fi
 
 # Build status line
