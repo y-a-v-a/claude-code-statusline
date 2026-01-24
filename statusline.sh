@@ -32,7 +32,7 @@ SESSION_DURATION=""
 MESSAGE_COUNT=""
 
 if [ -f "$TRANSCRIPT_PATH" ]; then
-    # Get first message timestamp
+    # Get first message timestamp for session start display
     FIRST_TIMESTAMP=$(head -n 10 "$TRANSCRIPT_PATH" | jq -r 'select(.type == "user") | .timestamp' 2>/dev/null | head -n 1)
 
     if [ -n "$FIRST_TIMESTAMP" ]; then
@@ -43,20 +43,69 @@ if [ -f "$TRANSCRIPT_PATH" ]; then
         if date --version &>/dev/null 2>&1; then
             # GNU date (Linux)
             SESSION_START=$(date -d "$TIMESTAMP_CLEAN" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "")
-            START_EPOCH=$(date -d "$TIMESTAMP_CLEAN" "+%s" 2>/dev/null || echo "")
         else
             # BSD date (macOS)
             SESSION_START=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$TIMESTAMP_CLEAN" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "")
-            START_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$TIMESTAMP_CLEAN" "+%s" 2>/dev/null || echo "")
+        fi
+    fi
+
+    # Calculate active session duration (excluding pauses between sessions)
+    # Gap threshold: messages more than 5 minutes apart indicate a session pause
+    GAP_THRESHOLD=300  # 5 minutes in seconds
+
+    # Extract all user/assistant timestamps and convert to epoch times
+    TIMESTAMPS=$(jq -r 'select(.type == "user" or .type == "assistant") | .timestamp' "$TRANSCRIPT_PATH" 2>/dev/null)
+
+    if [ -n "$TIMESTAMPS" ]; then
+        TOTAL_ACTIVE_SECS=0
+        PREV_EPOCH=""
+        CURRENT_EPOCH=$(date +%s)
+        LAST_MESSAGE_EPOCH=""
+
+        while IFS= read -r ts; do
+            if [ -z "$ts" ]; then
+                continue
+            fi
+
+            # Convert timestamp to epoch
+            TS_CLEAN=$(echo "$ts" | cut -d'.' -f1)
+            if date --version &>/dev/null 2>&1; then
+                # GNU date (Linux)
+                TS_EPOCH=$(date -d "$TS_CLEAN" "+%s" 2>/dev/null || echo "")
+            else
+                # BSD date (macOS)
+                TS_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$TS_CLEAN" "+%s" 2>/dev/null || echo "")
+            fi
+
+            if [ -z "$TS_EPOCH" ] || ! [[ "$TS_EPOCH" =~ ^[0-9]+$ ]]; then
+                continue
+            fi
+
+            # Calculate gap from previous message
+            if [ -n "$PREV_EPOCH" ]; then
+                GAP=$((TS_EPOCH - PREV_EPOCH))
+                # Only count active time (gaps less than threshold)
+                if [ $GAP -le $GAP_THRESHOLD ]; then
+                    TOTAL_ACTIVE_SECS=$((TOTAL_ACTIVE_SECS + GAP))
+                fi
+            fi
+
+            PREV_EPOCH="$TS_EPOCH"
+            LAST_MESSAGE_EPOCH="$TS_EPOCH"
+        done <<< "$TIMESTAMPS"
+
+        # Add time from last message to now only if session is still active (gap < threshold)
+        if [ -n "$LAST_MESSAGE_EPOCH" ]; then
+            GAP_SINCE_LAST=$((CURRENT_EPOCH - LAST_MESSAGE_EPOCH))
+            if [ $GAP_SINCE_LAST -le $GAP_THRESHOLD ]; then
+                TOTAL_ACTIVE_SECS=$((TOTAL_ACTIVE_SECS + GAP_SINCE_LAST))
+            fi
         fi
 
-        # Calculate session duration if we successfully got the start epoch
-        if [ -n "$START_EPOCH" ] && [[ "$START_EPOCH" =~ ^[0-9]+$ ]]; then
-            CURRENT_EPOCH=$(date +%s)
-            DURATION_SECS=$((CURRENT_EPOCH - START_EPOCH))
-
-            HOURS=$((DURATION_SECS / 3600))
-            MINS=$(((DURATION_SECS % 3600) / 60))
+        # Format duration
+        if [ $TOTAL_ACTIVE_SECS -gt 0 ]; then
+            HOURS=$((TOTAL_ACTIVE_SECS / 3600))
+            MINS=$(((TOTAL_ACTIVE_SECS % 3600) / 60))
 
             if [ $HOURS -gt 0 ]; then
                 SESSION_DURATION="${HOURS}h ${MINS}m"
