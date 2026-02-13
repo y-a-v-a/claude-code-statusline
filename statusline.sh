@@ -7,8 +7,22 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+# Basic limits to avoid processing unexpectedly large payloads.
+MAX_INPUT_BYTES=1048576      # 1 MiB
+MAX_TRANSCRIPT_BYTES=5242880 # 5 MiB
+
+# Remove control characters before writing values to terminal output.
+sanitize_text() {
+    LC_ALL=C tr -d '\000-\037\177' <<< "$1"
+}
+
 # Read JSON input from stdin
-input=$(cat)
+input=$(head -c "$MAX_INPUT_BYTES")
+
+if [ "$(printf "%s" "$input" | wc -c | tr -d ' ')" -ge "$MAX_INPUT_BYTES" ]; then
+    echo "Error: Input too large" >&2
+    exit 1
+fi
 
 # Validate JSON input
 if ! echo "$input" | jq empty 2>/dev/null; then
@@ -28,10 +42,17 @@ OUTPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0'
 
 # Extract session info from transcript
 SESSION_START=""
-SESSION_DURATION=""
+SESSION_DURATION="0m"
 MESSAGE_COUNT=""
 
 if [ -f "$TRANSCRIPT_PATH" ]; then
+    TRANSCRIPT_SIZE=$(wc -c < "$TRANSCRIPT_PATH" | tr -d ' ')
+    if [ "$TRANSCRIPT_SIZE" -gt "$MAX_TRANSCRIPT_BYTES" ]; then
+        TRANSCRIPT_PATH=""
+    fi
+fi
+
+if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     # Get first message timestamp for session start display
     FIRST_TIMESTAMP=$(head -n 10 "$TRANSCRIPT_PATH" | jq -r 'select(.type == "user") | .timestamp' 2>/dev/null | head -n 1)
 
@@ -115,8 +136,8 @@ if [ -f "$TRANSCRIPT_PATH" ]; then
         fi
     fi
 
-    # Count messages (user + assistant) using jq for reliability
-    MESSAGE_COUNT=$(jq -s '[.[] | select(.type == "user" or .type == "assistant")] | length' "$TRANSCRIPT_PATH" 2>/dev/null || echo "0")
+    # Count messages (user + assistant) without loading the whole file into memory.
+    MESSAGE_COUNT=$(jq -nr 'reduce inputs as $i (0; if ($i.type == "user" or $i.type == "assistant") then . + 1 else . end)' "$TRANSCRIPT_PATH" 2>/dev/null || echo "0")
 fi
 
 # Format cost (show 4 decimal places) with validation
@@ -141,6 +162,12 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
         GIT_INFO=" 🌿 $BRANCH"
     fi
 fi
+
+# Sanitize text fields before rendering.
+MODEL_DISPLAY=$(sanitize_text "$MODEL_DISPLAY")
+VERSION=$(sanitize_text "$VERSION")
+CURRENT_DIR=$(sanitize_text "$CURRENT_DIR")
+GIT_INFO=$(sanitize_text "$GIT_INFO")
 
 # Format token counts with K suffix if > 1000
 format_tokens() {
