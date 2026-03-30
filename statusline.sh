@@ -151,7 +151,7 @@ if [ -n "$BRANCH" ]; then
     GIT_STATUS=""
     [ "$STAGED" -gt 0 ] && GIT_STATUS="${GREEN}+${STAGED}${RESET}"
     [ "$MODIFIED" -gt 0 ] && GIT_STATUS="${GIT_STATUS}${YELLOW}~${MODIFIED}${RESET}"
-    GIT_INFO=" | 🌿 $BRANCH $GIT_STATUS"
+    GIT_INFO="  🌿 $BRANCH $GIT_STATUS"
 fi
 
 # Sanitize text fields
@@ -160,9 +160,9 @@ VERSION=$(sanitize_text "$VERSION")
 DIR_NAME=$(sanitize_text "$DIR_NAME")
 
 # Current time for display
-CURRENT_TIME=$(date "+%Y-%m-%d %H:%M:%S")
+CURRENT_TIME=$(date "+%Y%m%d%H%M%S")
 
 # Line 1: model, version, directory, git
-echo -e "🤖 ${CYAN}${MODEL_DISPLAY}${RESET} | 🎲 v${VERSION} | 📁 ${DIR_NAME}${GIT_INFO}"
+echo -e "🤖 ${CYAN}${MODEL_DISPLAY}${RESET}  🎲 v${VERSION}  📁 ${DIR_NAME}${GIT_INFO}"
 # Line 2: context bar, cost, duration, time
-echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT}) | 💰 ${COST_FORMATTED} | ⏱️ ${MINS}m ${SECS}s | 🕐 ${CURRENT_TIME}"
+echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})  💰 ${COST_FORMATTED}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"
