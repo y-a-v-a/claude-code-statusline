@@ -108,9 +108,15 @@ INPUT_TOTAL=$((INPUT_TOKENS + CACHE_CREATE + CACHE_READ))
 INPUT_FMT=$(format_tokens "$INPUT_TOTAL")
 OUTPUT_FMT=$(format_tokens "$OUTPUT_TOKENS")
 
-# Extract directory name safely
+# Display path relative to home directory (~/...)
 if [ -n "$CURRENT_DIR" ] && [ "$CURRENT_DIR" != "/" ]; then
-    DIR_NAME="${CURRENT_DIR##*/}"
+    if [ -n "$HOME" ] && [ "$CURRENT_DIR" = "$HOME" ]; then
+        DIR_NAME="~"
+    elif [ -n "$HOME" ] && [ "${CURRENT_DIR#"$HOME"/}" != "$CURRENT_DIR" ]; then
+        DIR_NAME="~/${CURRENT_DIR#"$HOME"/}"
+    else
+        DIR_NAME="$CURRENT_DIR"
+    fi
 else
     DIR_NAME="/"
 fi
