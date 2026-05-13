@@ -70,6 +70,16 @@ else
     COST_FORMATTED='$0.00'
 fi
 
+# Detect auth mode: when logged in on a subscription, the cost number is misleading.
+# Read ~/.claude.json oauthAccount.billingType — "stripe_subscription" => hide cost.
+IS_SUBSCRIPTION=0
+if [ -r "$HOME/.claude.json" ]; then
+    BILLING_TYPE=$(jq -r '.oauthAccount.billingType // ""' "$HOME/.claude.json" 2>/dev/null)
+    if [[ "$BILLING_TYPE" == *subscription* ]]; then
+        IS_SUBSCRIPTION=1
+    fi
+fi
+
 # Format context percentage (safe integer, clamped to 0-100)
 PCT=$(as_int "$USED_PERCENT")
 [ "$PCT" -gt 100 ] && PCT=100
@@ -170,5 +180,10 @@ CURRENT_TIME=$(date "+%Y%m%d%H%M%S")
 
 # Line 1: model, version, directory, git
 echo -e "🤖 ${CYAN}${MODEL_DISPLAY}${RESET}  🎲 v${VERSION}  📁 ${DIR_NAME}${GIT_INFO}"
-# Line 2: context bar, cost, duration, time
-echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})  💰 ${COST_FORMATTED}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"
+# Line 2: context bar, cost (api only), duration, time
+if [ "$IS_SUBSCRIPTION" -eq 1 ]; then
+    COST_SEGMENT=""
+else
+    COST_SEGMENT="  💰 ${COST_FORMATTED}"
+fi
+echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})${COST_SEGMENT}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"
