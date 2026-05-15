@@ -132,7 +132,6 @@ else
 fi
 
 # Git info with caching (refreshes every 5 seconds)
-CACHE_FILE="/tmp/statusline-git-cache"
 CACHE_MAX_AGE=5
 
 cache_is_stale() {
@@ -145,29 +144,39 @@ cache_is_stale() {
 }
 
 GIT_INFO=""
-if cache_is_stale; then
-    if git rev-parse --git-dir > /dev/null 2>&1; then
-        BRANCH=$(git branch --show-current 2>/dev/null || echo "")
-        STAGED=$(git diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
-        MODIFIED=$(git diff --numstat 2>/dev/null | wc -l | tr -d ' ')
-        echo "$BRANCH|$STAGED|$MODIFIED" > "$CACHE_FILE"
-    else
-        echo "||" > "$CACHE_FILE"
+GIT_ROOT=""
+if [ -n "$CURRENT_DIR" ] && [ -d "$CURRENT_DIR" ]; then
+    GIT_ROOT=$(git -C "$CURRENT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "")
+fi
+
+if [ -n "$GIT_ROOT" ]; then
+    CACHE_KEY=$(printf '%s' "$GIT_ROOT" | cksum | cut -d ' ' -f 1)
+    CACHE_FILE="${TMPDIR:-/tmp}/statusline-git-cache-${CACHE_KEY}"
+
+    if cache_is_stale; then
+        if git -C "$CURRENT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+            BRANCH=$(git -C "$CURRENT_DIR" branch --show-current 2>/dev/null || echo "")
+            STAGED=$(git -C "$CURRENT_DIR" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
+            MODIFIED=$(git -C "$CURRENT_DIR" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
+            echo "$BRANCH|$STAGED|$MODIFIED" > "$CACHE_FILE"
+        else
+            echo "||" > "$CACHE_FILE"
+        fi
     fi
-fi
 
-if [ -f "$CACHE_FILE" ]; then
-    IFS='|' read -r BRANCH STAGED MODIFIED < "$CACHE_FILE"
-fi
+    if [ -f "$CACHE_FILE" ]; then
+        IFS='|' read -r BRANCH STAGED MODIFIED < "$CACHE_FILE"
+    fi
 
-STAGED=$(as_int "$STAGED")
-MODIFIED=$(as_int "$MODIFIED")
+    STAGED=$(as_int "$STAGED")
+    MODIFIED=$(as_int "$MODIFIED")
 
-if [ -n "$BRANCH" ]; then
-    GIT_STATUS=""
-    [ "$STAGED" -gt 0 ] && GIT_STATUS="${GREEN}+${STAGED}${RESET}"
-    [ "$MODIFIED" -gt 0 ] && GIT_STATUS="${GIT_STATUS}${YELLOW}~${MODIFIED}${RESET}"
-    GIT_INFO="  🌿 $BRANCH $GIT_STATUS"
+    if [ -n "$BRANCH" ]; then
+        GIT_STATUS=""
+        [ "$STAGED" -gt 0 ] && GIT_STATUS="${GREEN}+${STAGED}${RESET}"
+        [ "$MODIFIED" -gt 0 ] && GIT_STATUS="${GIT_STATUS}${YELLOW}~${MODIFIED}${RESET}"
+        GIT_INFO="  🌿 $BRANCH $GIT_STATUS"
+    fi
 fi
 
 # Sanitize text fields
