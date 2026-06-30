@@ -158,23 +158,35 @@ if [ -n "$GIT_ROOT" ]; then
             BRANCH=$(git -C "$CURRENT_DIR" branch --show-current 2>/dev/null || echo "")
             STAGED=$(git -C "$CURRENT_DIR" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
             MODIFIED=$(git -C "$CURRENT_DIR" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
-            echo "$BRANCH|$STAGED|$MODIFIED" > "$CACHE_FILE"
+            # Total line churn (added|removed) across all uncommitted changes vs HEAD.
+            # Skip binary files, whose numstat columns are "-".
+            DIFFSTAT=$(git -C "$CURRENT_DIR" diff HEAD --numstat 2>/dev/null \
+                | awk '{ if ($1 != "-") a += $1; if ($2 != "-") d += $2 } END { print (a+0) "|" (d+0) }')
+            ADDED=${DIFFSTAT%%|*}
+            REMOVED=${DIFFSTAT##*|}
+            echo "$BRANCH|$STAGED|$MODIFIED|$ADDED|$REMOVED" > "$CACHE_FILE"
         else
-            echo "||" > "$CACHE_FILE"
+            echo "||||" > "$CACHE_FILE"
         fi
     fi
 
     if [ -f "$CACHE_FILE" ]; then
-        IFS='|' read -r BRANCH STAGED MODIFIED < "$CACHE_FILE"
+        IFS='|' read -r BRANCH STAGED MODIFIED ADDED REMOVED < "$CACHE_FILE"
     fi
 
     STAGED=$(as_int "$STAGED")
     MODIFIED=$(as_int "$MODIFIED")
+    ADDED=$(as_int "$ADDED")
+    REMOVED=$(as_int "$REMOVED")
 
     if [ -n "$BRANCH" ]; then
         GIT_STATUS=""
         [ "$STAGED" -gt 0 ] && GIT_STATUS="${GREEN}+${STAGED}${RESET}"
         [ "$MODIFIED" -gt 0 ] && GIT_STATUS="${GIT_STATUS}${YELLOW}~${MODIFIED}${RESET}"
+        GIT_CHURN=""
+        [ "$ADDED" -gt 0 ] && GIT_CHURN="${GREEN}+${ADDED}${RESET}"
+        [ "$REMOVED" -gt 0 ] && GIT_CHURN="${GIT_CHURN}${RED}-${REMOVED}${RESET}"
+        [ -n "$GIT_CHURN" ] && GIT_STATUS="${GIT_STATUS} ${GIT_CHURN}"
         GIT_INFO="  🌿 $BRANCH $GIT_STATUS"
     fi
 fi
