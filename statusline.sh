@@ -50,6 +50,9 @@ as_int() {
 
 # Extract values using jq with null fallbacks
 MODEL_DISPLAY=$(echo "$input" | jq -r '.model.display_name // "unknown"')
+EFFORT_LEVEL=$(echo "$input" | jq -r '.effort.level? | strings' 2>/dev/null)
+FIVE_HOUR_PCT=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage? | numbers' 2>/dev/null)
+SEVEN_DAY_PCT=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage? | numbers' 2>/dev/null)
 VERSION=$(echo "$input" | jq -r '.version // "?"')
 CURRENT_DIR=$(echo "$input" | jq -r '.workspace.current_dir // "."')
 TOTAL_COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
@@ -193,6 +196,9 @@ fi
 
 # Sanitize text fields
 MODEL_DISPLAY=$(sanitize_text "$MODEL_DISPLAY")
+EFFORT_LEVEL=$(sanitize_text "$EFFORT_LEVEL")
+EFFORT_SEGMENT=""
+[ -n "$EFFORT_LEVEL" ] && EFFORT_SEGMENT=" (${EFFORT_LEVEL})"
 VERSION=$(sanitize_text "$VERSION")
 DIR_NAME=$(sanitize_text "$DIR_NAME")
 
@@ -200,11 +206,31 @@ DIR_NAME=$(sanitize_text "$DIR_NAME")
 CURRENT_TIME=$(date "+%Y%m%d%H%M%S")
 
 # Line 1: model, version, directory, git
-echo -e "🤖 ${CYAN}${MODEL_DISPLAY}${RESET}  🎲 v${VERSION}  📁 ${DIR_NAME}${GIT_INFO}"
+echo -e "🤖 ${CYAN}${MODEL_DISPLAY}${EFFORT_SEGMENT}${RESET}  🎲 v${VERSION}  📁 ${DIR_NAME}${GIT_INFO}"
 # Line 2: context bar, cost (api only), duration, time
 if [ "$IS_SUBSCRIPTION" -eq 1 ]; then
     COST_SEGMENT=""
 else
     COST_SEGMENT="  💰 ${COST_FORMATTED}"
 fi
-echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})${COST_SEGMENT}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"
+
+limit_segment() {
+    local label=$1 pct color
+    pct=$(as_int "$(printf '%.0f' "$2" 2>/dev/null)")
+    if [ "$pct" -ge 90 ]; then
+        color="$RED"
+    elif [ "$pct" -ge 70 ]; then
+        color="$YELLOW"
+    else
+        color="$GREEN"
+    fi
+    printf '%s %b%s%%%b' "$label" "$color" "$pct" "$RESET"
+}
+
+LIMITS=""
+LIMITS_SEGMENT=""
+[ -n "$FIVE_HOUR_PCT" ] && LIMITS="$(limit_segment 5h "$FIVE_HOUR_PCT")"
+[ -n "$SEVEN_DAY_PCT" ] && LIMITS="${LIMITS:+$LIMITS }$(limit_segment 7d "$SEVEN_DAY_PCT")"
+[ -n "$LIMITS" ] && LIMITS_SEGMENT="  📊 ${LIMITS}"
+
+echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})${COST_SEGMENT}${LIMITS_SEGMENT}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"

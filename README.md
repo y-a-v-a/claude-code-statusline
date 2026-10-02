@@ -6,9 +6,9 @@ A custom status line script for [Claude Code](https://docs.anthropic.com/en/docs
 
 ## What it shows
 
-**Line 1:** Model name, version, working directory, git branch with staged/modified counts
+**Line 1:** Model name with effort level, version, working directory, git branch with staged/modified counts
 
-**Line 2:** Color-coded context usage bar, token counts, session cost, duration, current date/time
+**Line 2:** Color-coded context usage bar, token counts, session cost (API only), subscription usage (5h/7d, Pro/Max only), duration, current date/time
 
 ## Requirements
 
