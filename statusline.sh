@@ -66,6 +66,13 @@ CACHE_CREATE=$(as_int "$(echo "$input" | jq -r '.context_window.current_usage.ca
 CACHE_READ=$(as_int "$(echo "$input" | jq -r '.context_window.current_usage.cache_read_input_tokens // 0')")
 OUTPUT_TOKENS=$(as_int "$(echo "$input" | jq -r '.context_window.current_usage.output_tokens // 0')")
 
+# Prompt cache state as "observed|expires_at|ttl|recache_tokens_if_cold"
+# prompt_cache is absent before the first API response (and before Claude Code v2.1.251)
+CACHE_STATE=$(echo "$input" | jq -r '.prompt_cache // {}
+    | [(.caching_observed // false), (.expires_at // ""), (.ttl // ""), (.recache_tokens_if_cold // "")]
+    | map(tostring) | join("|")' 2>/dev/null)
+IFS='|' read -r CACHE_OBSERVED CACHE_EXPIRES CACHE_TTL CACHE_RECACHE <<< "$CACHE_STATE"
+
 # Format cost
 if [[ "$TOTAL_COST" =~ ^[0-9]*\.?[0-9]+$ ]]; then
     COST_FORMATTED=$(printf '$%.2f' "$TOTAL_COST")
@@ -233,4 +240,39 @@ LIMITS_SEGMENT=""
 [ -n "$SEVEN_DAY_PCT" ] && LIMITS="${LIMITS:+$LIMITS }$(limit_segment 7d "$SEVEN_DAY_PCT")"
 [ -n "$LIMITS" ] && LIMITS_SEGMENT="  📊 ${LIMITS}"
 
-echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})${COST_SEGMENT}${LIMITS_SEGMENT}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"
+# Prompt cache countdown: whole minutes until the cached conversation expires.
+# Once cold, the next message re-processes the whole context (↻ tokens) at cache-write cost.
+# Compares expires_at against the clock, so it needs statusLine.refreshInterval to tick while idle.
+CACHE_SEGMENT=""
+NOW=$(as_int "$(date +%s 2>/dev/null)")
+if [ "$CACHE_OBSERVED" = "true" ] && [ "$NOW" -gt 0 ]; then
+    CACHE_EXPIRES=$(as_int "$CACHE_EXPIRES")
+    CACHE_LEFT=$((CACHE_EXPIRES - NOW))
+    if [ "$CACHE_EXPIRES" -gt 0 ] && [ "$CACHE_LEFT" -gt 0 ]; then
+        if [ "$CACHE_TTL" = "5m" ]; then
+            CACHE_TTL_SEC=300
+        else
+            CACHE_TTL_SEC=3600
+        fi
+        CACHE_LEFT_PCT=$((CACHE_LEFT * 100 / CACHE_TTL_SEC))
+        if [ "$CACHE_LEFT_PCT" -le 10 ]; then
+            CACHE_COLOR="$RED"
+        elif [ "$CACHE_LEFT_PCT" -le 25 ]; then
+            CACHE_COLOR="$YELLOW"
+        else
+            CACHE_COLOR="$GREEN"
+        fi
+        if [ "$CACHE_LEFT" -ge 60 ]; then
+            CACHE_LEFT_FMT="$((CACHE_LEFT / 60))m"
+        else
+            CACHE_LEFT_FMT="<1m"
+        fi
+        CACHE_SEGMENT="  🔥 ${CACHE_COLOR}${CACHE_LEFT_FMT}${RESET}"
+    else
+        CACHE_RECACHE=$(as_int "$CACHE_RECACHE")
+        CACHE_SEGMENT="  🧊 ${CYAN}cold${RESET}"
+        [ "$CACHE_RECACHE" -gt 0 ] && CACHE_SEGMENT="${CACHE_SEGMENT} ↻$(format_tokens "$CACHE_RECACHE")"
+    fi
+fi
+
+echo -e "${BAR_COLOR}${BAR}${RESET} 🧠 ${PCT}% (↓${INPUT_FMT} ↑${OUTPUT_FMT})${CACHE_SEGMENT}${COST_SEGMENT}${LIMITS_SEGMENT}  ⏱️ ${MINS}m${SECS}s  🕐 ${CURRENT_TIME}"
